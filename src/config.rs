@@ -157,10 +157,23 @@ impl RawServer {
             }
             _ => bail!("server '{name}': needs either `command` (stdio) or `url` (http/sse)"),
         };
+        let oauth = match &self.oauth {
+            None => OAuthConfig::default(),
+            Some(o) => OAuthConfig {
+                client_id: o.client_id.as_deref().map(x).transpose()?,
+                client_secret: o.client_secret.as_deref().map(x).transpose()?,
+                scopes: o
+                    .scopes
+                    .as_ref()
+                    .map(|s| s.iter().map(|v| x(v)).collect::<Result<_>>())
+                    .transpose()?,
+                grant: o.grant.clone(),
+            },
+        };
         Ok(Server {
             name: name.to_string(),
             transport,
-            oauth: self.oauth.clone().unwrap_or_default(),
+            oauth,
         })
     }
 }
@@ -363,6 +376,22 @@ mod tests {
         assert!(expand_with("${NOPE}", get).is_err());
         assert!(expand_with("${TOKEN", get).is_err());
         assert_eq!(expand_with("plain $HOME", get).unwrap(), "plain $HOME");
+    }
+
+    #[test]
+    fn expands_variables_in_oauth() {
+        // SAFETY: test-only; the variable name is unique to this test.
+        unsafe { std::env::set_var("MCPX_TEST_OAUTH_SECRET_7F3", "s3cret") };
+        let m = Config::parse(
+            r#"{"mcpServers":{"pb":{"url":"http://127.0.0.1:1/mcp","oauth":{
+                "grant":"client_credentials","client_id":"${MCPX_TEST_NOPE_7F3:-cid}",
+                "client_secret":"${MCPX_TEST_OAUTH_SECRET_7F3}","scopes":["${MCPX_TEST_NOPE_7F3:-mcp}"]}}}}"#,
+        )
+        .unwrap();
+        let o = m["pb"].resolve("pb").unwrap().oauth;
+        assert_eq!(o.client_id.as_deref(), Some("cid"));
+        assert_eq!(o.client_secret.as_deref(), Some("s3cret"));
+        assert_eq!(o.scopes, Some(vec!["mcp".to_string()]));
     }
 
     #[test]

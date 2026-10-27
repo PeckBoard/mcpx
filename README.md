@@ -68,7 +68,6 @@ The first file found is used. `--import` also merges servers from
 `~/.claude.json` (global and current-project entries), `~/.cursor/mcp.json`,
 `.cursor/mcp.json`, and `.vscode/mcp.json` (VS Code's `servers` key). When two
 files define the same name, the entry from the main config wins.
-files define the same name, the entry from the main config wins.
 
 ```json
 {
@@ -103,7 +102,8 @@ files define the same name, the entry from the main config wins.
   `"transport": "sse"` or `"type": "sse"`. The `"type": "stdio" | "http" | "sse"`
   form is accepted too.
 - `${VAR}` and `${VAR:-default}` are expanded in `command`, `args`, `env`,
-  `cwd`, `url`, and `headers`. If a variable has no default and is not set,
+  `cwd`, `url`, `headers`, and the `oauth` `client_id`, `client_secret`, and
+  `scopes`. If a variable has no default and is not set,
   that server fails with an error instead of sending an empty value.
 - `oauth` is optional. Without it, mcpx registers itself dynamically when the
   server asks for authorization. If you set an `Authorization` header, mcpx
@@ -229,6 +229,71 @@ tells you what went wrong:
 | 403 | The tool is blocked by the allow/deny filter, or the `Host` header is not loopback. |
 | 404 | Unknown server. |
 | 502 | The upstream server failed. |
+
+## Using mcpx with Peckboard
+
+mcpx comes from the [Peckboard](https://github.com/PeckBoard/peckboard)
+project and fits around it in three places.
+
+### Install from App Manager
+
+Peckboard's App Manager plugin has an `mcpx` entry. On a Linux or macOS
+target (the Peckboard host or any configured SSH host) it downloads the
+sha256-checked release binary to `~/.local/bin/mcpx`. On macOS, add
+`~/.local/bin` to your `PATH` to run it by name. Remove deletes the binary and
+keeps `~/.config/mcpx`, so your tokens survive a reinstall. App Manager can't
+drive Windows targets; use the PowerShell install above.
+
+### Call Peckboard's Own Tools
+
+Peckboard serves its tools (projects, cards, sessions, and any plugin tools)
+as an MCP server at `/mcp`. Scripts and bots reach it through an OAuth
+`client_credentials` client:
+
+1. In Peckboard, open **Settings → Connections → External Access**, create a
+   **New OAuth Client**, and pick the folder (and optionally the project) it
+   may act in. Copy the client ID and secret; the secret is shown only once.
+2. Add Peckboard to `mcp.json`, keeping the secret in the environment:
+
+   ```json
+   {
+     "mcpServers": {
+       "peckboard": {
+         "url": "http://127.0.0.1:3344/mcp",
+         "oauth": {
+           "grant": "client_credentials",
+           "client_id": "<client id>",
+           "client_secret": "${PECKBOARD_MCP_SECRET}"
+         }
+       }
+     }
+   }
+   ```
+
+3. Call it:
+
+   ```bash
+   export PECKBOARD_MCP_SECRET=...
+   mcpx tools peckboard --pretty
+   mcpx call peckboard.list_projects
+   ```
+
+mcpx finds the token endpoint through Peckboard's `/.well-known` metadata and
+swaps the client ID and secret for one-hour access tokens itself. Peckboard
+accepts these clients only on loopback (`http://127.0.0.1:3344/mcp` when mcpx
+runs on the Peckboard host) or on its HTTPS listener (the MCP URL that
+External Access shows, port 3345 by default), never through the remote-access
+relay. A client's tool calls show up in its own session in Peckboard, and
+revoking the client in Settings cuts it off. This needs mcpx 0.2.2 or later:
+earlier versions didn't expand `${VAR}` inside `oauth`.
+
+### Peckboard's MCP Servers vs mcpx
+
+The two configs are separate. Servers you add under **Settings → Connections
+→ MCP Servers** live in Peckboard's database and are injected into agent
+sessions; mcpx doesn't read them. Add the ones you also want in scripts to
+`mcp.json`. Agents inside Peckboard sessions can run `mcpx` like any other
+CLI, since it prints JSON.
 
 ## Security Notes
 

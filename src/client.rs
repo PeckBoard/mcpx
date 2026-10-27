@@ -70,7 +70,7 @@ impl Connector {
                 env,
                 cwd,
             } => {
-                let mut cmd = tokio::process::Command::new(command);
+                let mut cmd = tokio::process::Command::new(resolve_command(command));
                 cmd.args(args).envs(env);
                 if let Some(d) = cwd {
                     cmd.current_dir(d);
@@ -280,4 +280,61 @@ pub async fn get_prompt(s: &Service, name: &str, args: Map<String, Value>) -> Re
         serde_json::from_value(json!({"name": name, "arguments": args}))?;
     let r = s.get_prompt(params).await.map_err(|e| anyhow!("{e}"))?;
     Ok(serde_json::to_value(r)?)
+}
+
+/// The program to spawn for a stdio server's `command`. Windows only
+/// auto-resolves `.exe`, so a bare `npx` / `uvx` (really `npx.cmd`) would
+/// fail to spawn; look it up on `PATH` × `PATHEXT` there. Elsewhere the
+/// command is used as-is.
+fn resolve_command(command: &str) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        let exts: Vec<&str> = exts.split(';').filter(|e| !e.is_empty()).collect();
+        if let Some(p) = find_in_path(command, std::env::split_paths(&path), &exts, |p| {
+            p.is_file()
+        }) {
+            return p;
+        }
+    }
+    std::path::PathBuf::from(command)
+}
+
+/// First `dir/command{ext}` that `exists`, for a bare command name without
+/// an extension; `None` for paths or names that already carry one.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn find_in_path(
+    command: &str,
+    dirs: impl IntoIterator<Item = std::path::PathBuf>,
+    exts: &[&str],
+    exists: impl Fn(&std::path::Path) -> bool,
+) -> Option<std::path::PathBuf> {
+    let p = std::path::Path::new(command);
+    if p.components().count() != 1 || p.extension().is_some() {
+        return None;
+    }
+    dirs.into_iter()
+        .flat_map(|d| exts.iter().map(move |e| d.join(format!("{command}{e}"))))
+        .find(|c| exists(c))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn finds_cmd_shims_on_path() {
+        let dirs = || vec![PathBuf::from("a"), PathBuf::from("b")];
+        let exts = [".EXE", ".CMD"];
+        let exists = |p: &std::path::Path| p == std::path::Path::new("b").join("npx.CMD");
+        assert_eq!(
+            find_in_path("npx", dirs(), &exts, exists),
+            Some(PathBuf::from("b").join("npx.CMD"))
+        );
+        assert_eq!(find_in_path("npx.cmd", dirs(), &exts, exists), None);
+        assert_eq!(find_in_path("x/npx", dirs(), &exts, exists), None);
+        assert_eq!(find_in_path("uvx", dirs(), &exts, exists), None);
+    }
 }

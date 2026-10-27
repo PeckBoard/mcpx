@@ -1,4 +1,5 @@
-//! Where mcpx keeps its state: `~/.config/mcpx` (or `$MCPX_HOME`).
+//! Where mcpx keeps its state: `~/.config/mcpx` on Linux/macOS,
+//! `%APPDATA%\mcpx` on Windows (or `$MCPX_HOME` anywhere).
 
 use std::path::{Path, PathBuf};
 
@@ -10,7 +11,8 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// `$MCPX_HOME`, else `$XDG_CONFIG_HOME/mcpx`, else `~/.config/mcpx`.
+    /// `$MCPX_HOME`, else `$XDG_CONFIG_HOME/mcpx`, else `%APPDATA%\mcpx`
+    /// (Windows only), else `~/.config/mcpx`.
     pub fn from_env() -> Self {
         if let Some(h) = std::env::var_os("MCPX_HOME") {
             return Self { home: h.into() };
@@ -18,6 +20,12 @@ impl Paths {
         if let Some(x) = std::env::var_os("XDG_CONFIG_HOME") {
             return Self {
                 home: PathBuf::from(x).join("mcpx"),
+            };
+        }
+        #[cfg(windows)]
+        if let Some(a) = std::env::var_os("APPDATA") {
+            return Self {
+                home: PathBuf::from(a).join("mcpx"),
             };
         }
         Self {
@@ -40,8 +48,16 @@ impl Paths {
     }
 }
 
+/// `$HOME`; on Windows falls back to `%USERPROFILE%`.
 pub fn user_home() -> PathBuf {
     std::env::var_os("HOME")
+        .or_else(|| {
+            if cfg!(windows) {
+                std::env::var_os("USERPROFILE")
+            } else {
+                None
+            }
+        })
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
 }

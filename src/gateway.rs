@@ -456,15 +456,26 @@ pub async fn serve_forever(pool: Arc<Pool>, paths: &Paths, port: u16, auth: bool
         running.addr,
         paths.gateway().display()
     );
-    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
-        _ = term.recv() => {}
-    }
+    shutdown_signal().await?;
     if GatewayState::read(paths).is_some_and(|s| s.pid == std::process::id()) {
         let _ = std::fs::remove_file(paths.gateway());
     }
     running.ct.cancel();
     let _ = tokio::time::timeout(Duration::from_secs(5), running.handle).await;
+    Ok(())
+}
+
+/// Resolves on Ctrl-C, or SIGTERM on Unix.
+async fn shutdown_signal() -> Result<()> {
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await?;
     Ok(())
 }

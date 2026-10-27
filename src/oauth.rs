@@ -812,12 +812,17 @@ fn open_browser(url: &str) {
     if headless {
         return;
     }
-    let cmd = if cfg!(target_os = "macos") {
-        "open"
+    let mut cmd = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(windows) {
+        // Not `cmd /C start`: cmd mangles the `&` in query strings.
+        let mut c = std::process::Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
     } else {
-        "xdg-open"
+        std::process::Command::new("xdg-open")
     };
-    let _ = std::process::Command::new(cmd)
+    let _ = cmd
         .arg(url)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

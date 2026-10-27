@@ -14,13 +14,34 @@ through one authenticated HTTP endpoint.
 
 ## Install
 
-Static Linux binaries (x86_64, aarch64) are attached to each
-[release](https://github.com/PeckBoard/mcpx/releases):
+Each [release](https://github.com/PeckBoard/mcpx/releases) attaches binaries,
+each with a `<name>.sha256` (`<hash>  <name>`):
+
+| Platform               | Asset                                          |
+| ---------------------- | ---------------------------------------------- |
+| Linux (static musl)    | `mcpx-linux-x86_64`, `mcpx-linux-aarch64`      |
+| macOS (Apple / Intel)  | `mcpx-macos-aarch64`, `mcpx-macos-x86_64`      |
+| Windows                | `mcpx-windows-x86_64.exe`                      |
+
+Linux / macOS:
 
 ```bash
+os=$(uname -s | tr A-Z a-z); [ "$os" = darwin ] && os=macos
 arch=$(uname -m); [ "$arch" = arm64 ] && arch=aarch64
-curl -fsSLo mcpx "https://github.com/PeckBoard/mcpx/releases/latest/download/mcpx-linux-${arch}"
+curl -fsSLo mcpx "https://github.com/PeckBoard/mcpx/releases/latest/download/mcpx-${os}-${arch}"
 chmod +x mcpx && sudo mv mcpx /usr/local/bin/
+```
+
+The macOS binaries are not notarized. `curl` downloads run as-is; if you
+downloaded one with a browser, clear the quarantine flag first:
+`xattr -d com.apple.quarantine mcpx`.
+
+Windows (PowerShell):
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\mcpx"; New-Item -ItemType Directory -Force $dir | Out-Null
+Invoke-WebRequest https://github.com/PeckBoard/mcpx/releases/latest/download/mcpx-windows-x86_64.exe -OutFile "$dir\mcpx.exe"
+# then add $dir to your user PATH
 ```
 
 Or build from source with `cargo install --git https://github.com/PeckBoard/mcpx`.
@@ -31,11 +52,22 @@ mcpx looks for the config file in this order:
 
 1. `--config <file>` (or `$MCPX_CONFIG`)
 2. `./.mcp.json`
-3. `~/.config/mcpx/mcp.json`
+3. `<home>/mcp.json`, where `<home>` is the state directory below
+
+State (`mcp.json`, `tokens.json`, `gateway.json`) lives in:
+
+- `$MCPX_HOME` if set, else `$XDG_CONFIG_HOME/mcpx` if set;
+- otherwise `~/.config/mcpx` on Linux and macOS, `%APPDATA%\mcpx` on Windows.
+
+`~` is `$HOME` (on Windows, `%USERPROFILE%` when `HOME` is unset); `${HOME}`
+in `mcp.json` falls back the same way. On Windows a bare stdio `command` such as
+`npx` or `uvx` is looked up on `PATH` with `PATHEXT`, so `npx.cmd` shims work
+without spelling out the extension.
 
 The first file found is used. `--import` also merges servers from
 `~/.claude.json` (global and current-project entries), `~/.cursor/mcp.json`,
 `.cursor/mcp.json`, and `.vscode/mcp.json` (VS Code's `servers` key). When two
+files define the same name, the entry from the main config wins.
 files define the same name, the entry from the main config wins.
 
 ```json

@@ -166,9 +166,16 @@ impl RawServer {
 }
 
 /// Expand `${VAR}` and `${VAR:-default}`. A missing variable without a
-/// default is an error (silently sending an empty token is worse).
+/// default is an error (silently sending an empty token is worse). On
+/// Windows `${HOME}` falls back to `%USERPROFILE%` so shared configs work.
 pub fn expand(s: &str) -> Result<String> {
-    expand_with(s, |k| std::env::var(k).ok())
+    expand_with(s, |k| {
+        std::env::var(k).ok().or_else(|| {
+            (cfg!(windows) && k == "HOME")
+                .then(|| std::env::var("USERPROFILE").ok())
+                .flatten()
+        })
+    })
 }
 
 pub fn expand_with(s: &str, get: impl Fn(&str) -> Option<String>) -> Result<String> {

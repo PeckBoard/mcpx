@@ -1,7 +1,8 @@
 name: Release
 
-# Builds static x86_64 + aarch64 Linux (musl) binaries and attaches them to
-# the GitHub release for the pushed tag (`v*`). Re-running a tag re-uploads
+# Builds static x86_64 + aarch64 Linux (musl), macOS (aarch64, x86_64) and
+# Windows (x86_64) binaries and attaches them to the GitHub release for the
+# pushed tag (`v*`). Re-running a tag re-uploads with --clobber.
 # with --clobber.
 on:
   push:
@@ -48,8 +49,54 @@ jobs:
           name: ${{ matrix.target }}
           path: mcpx-linux-*
 
+  build-native:
+    strategy:
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, asset: mcpx-macos-aarch64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, asset: mcpx-macos-x86_64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, asset: mcpx-windows-x86_64.exe }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Test
+        if: matrix.target != 'x86_64-apple-darwin'
+        run: cargo test --target ${{ matrix.target }}
+
+      - name: Build
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          bin=mcpx; [ "${{ runner.os }}" = Windows ] && bin=mcpx.exe
+          cp "target/${{ matrix.target }}/release/$bin" "${{ matrix.asset }}"
+          # `<hash>  <name>`, the format sha256sum writes on Linux (Git Bash's
+          # sha256sum may mark binary mode with `*`, so write it explicitly).
+          if command -v sha256sum >/dev/null; then
+            hash=$(sha256sum "${{ matrix.asset }}" | cut -d' ' -f1)
+          else
+            hash=$(shasum -a 256 "${{ matrix.asset }}" | cut -d' ' -f1)
+          fi
+          hash="${hash#\\}"
+          printf '%s  %s\n' "$hash" "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          cat "${{ matrix.asset }}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: mcpx-*
+
   publish:
-    needs: build
+  publish:
+    needs: [build, build-native]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +118,6 @@ jobs:
             gh release upload "$TAG" dist/* --clobber
             gh release edit "$TAG" --draft=false --latest
           else
-            gh release create "$TAG" dist/* --title "$TAG" \
+              --notes "mcpx $TAG — binaries for Linux (static, x86_64/aarch64), macOS (aarch64/x86_64) and Windows (x86_64). See README for install." --latest
               --notes "mcpx $TAG — static Linux binaries (x86_64, aarch64). See README for install." --latest
           fi

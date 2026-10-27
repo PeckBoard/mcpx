@@ -3,7 +3,6 @@ name: Release
 # Builds static x86_64 + aarch64 Linux (musl), macOS (aarch64, x86_64) and
 # Windows (x86_64) binaries and attaches them to the GitHub release for the
 # pushed tag (`v*`). Re-running a tag re-uploads with --clobber.
-# with --clobber.
 on:
   push:
     tags: ['v*']
@@ -95,7 +94,6 @@ jobs:
           path: mcpx-*
 
   publish:
-  publish:
     needs: [build, build-native]
     runs-on: ubuntu-latest
     steps:
@@ -118,6 +116,6 @@ jobs:
             gh release upload "$TAG" dist/* --clobber
             gh release edit "$TAG" --draft=false --latest
           else
+            gh release create "$TAG" dist/* --title "$TAG" \
               --notes "mcpx $TAG — binaries for Linux (static, x86_64/aarch64), macOS (aarch64/x86_64) and Windows (x86_64). See README for install." --latest
-              --notes "mcpx $TAG — static Linux binaries (x86_64, aarch64). See README for install." --latest
           fi
